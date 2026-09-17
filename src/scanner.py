@@ -176,8 +176,16 @@ class SessionScanner:
 
     def scan(self, *, force: bool = False) -> QuotaSnapshot:
         files, signature = self._files_and_signature()
+        now_timestamp = int(datetime.now(timezone.utc).timestamp())
         if not force and self._signature == signature and self._cached_snapshot is not None:
-            return self._cached_snapshot
+            cached_windows = (self._cached_snapshot.primary, self._cached_snapshot.weekly)
+            if all(
+                window is None
+                or window.resets_at is None
+                or window.resets_at > now_timestamp
+                for window in cached_windows
+            ):
+                return self._cached_snapshot
 
         latest: dict[str, tuple[tuple[float, int, int], RateLimitWindow]] = {}
         file_mtimes: dict[Path, int] = {}
@@ -228,12 +236,18 @@ class SessionScanner:
                             continue
 
                         used = max(0.0, min(100.0, used))
+                        resets_at = _parse_reset(value.get("resets_at"))
+                        if resets_at is not None and resets_at <= now_timestamp:
+                            # A window whose reset time has passed belongs to a new
+                            # quota cycle even when Codex has not emitted a new line.
+                            used = 0.0
+                            resets_at = None
                         window = RateLimitWindow(
                             key=kind,
                             used_percent=used,
                             remaining_percent=100.0 - used,
                             window_minutes=_as_int(value.get("window_minutes")),
-                            resets_at=_parse_reset(value.get("resets_at")),
+                            resets_at=resets_at,
                             observed_at=observed_at,
                             source_file=path,
                             line_number=line_number,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.scanner import (
@@ -12,7 +13,15 @@ from src.scanner import (
 )
 
 
-def _record(timestamp: str, *, primary: float | None = 45.0, weekly: float | None = 20.0) -> dict:
+def _record(
+    timestamp: str,
+    *,
+    primary: float | None = 45.0,
+    weekly: float | None = 20.0,
+    primary_reset: int | None = None,
+    weekly_reset: int | None = None,
+) -> dict:
+    now = datetime.now(timezone.utc)
     rate_limits: dict = {
         "limit_id": "codex",
         "limit_name": None,
@@ -26,13 +35,13 @@ def _record(timestamp: str, *, primary: float | None = 45.0, weekly: float | Non
         rate_limits["primary"] = {
             "used_percent": primary,
             "window_minutes": 300,
-            "resets_at": 1789470342,
+            "resets_at": primary_reset or int((now + timedelta(hours=1)).timestamp()),
         }
     if weekly is not None:
         rate_limits["secondary"] = {
             "used_percent": weekly,
             "window_minutes": 10080,
-            "resets_at": 1789953273,
+            "resets_at": weekly_reset or int((now + timedelta(days=1)).timestamp()),
         }
     return {
         "timestamp": timestamp,
@@ -132,6 +141,29 @@ class SessionScannerTests(unittest.TestCase):
             second = scanner.scan()
             self.assertIsNot(first, second)
             self.assertEqual(second.primary.used_percent, 35.0)
+
+    def test_expired_window_starts_new_cycle_without_new_log_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            now = int(datetime.now(timezone.utc).timestamp())
+            path = Path(temp_dir) / "session.jsonl"
+            path.write_text(
+                json.dumps(
+                    _record(
+                        "2026-09-15T09:10:00.000Z",
+                        primary_reset=now - 1,
+                        weekly_reset=now + 86400,
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            snapshot = SessionScanner(Path(temp_dir)).scan(force=True)
+
+            self.assertEqual(snapshot.primary.used_percent, 0.0)
+            self.assertEqual(snapshot.primary.remaining_percent, 100.0)
+            self.assertIsNone(snapshot.primary.resets_at)
+            self.assertEqual(snapshot.weekly.used_percent, 20.0)
 
 
 if __name__ == "__main__":

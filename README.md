@@ -189,7 +189,7 @@ GitHub Actions 会在 Windows 环境下使用 Python **3.10** 和 **3.12** 自�
 
 ## 构建 EXE
 
-运行时只使用 Python 标准库；只有构建 EXE 时需要 PyInstaller。
+运行时只使用 Python 标准库；只有构建 EXE 时需要 PyInstaller。构建使用 `requirements-dev.txt` 中锁定的 PyInstaller 版本（当前为 **6.22.3**），以保证打包环境可追溯。
 
 推荐先创建独立虚拟环境：
 
@@ -209,9 +209,11 @@ py -m venv .venv
 1. 检查 Python / PyInstaller 环境；
 2. 运行单元测试；
 3. 执行 `compileall`；
-4. 重新生成图标资源；
+4. 按需重新生成图标资源（内容一致时不重写文件）；
 5. 调用 PyInstaller 构建 one-file EXE；
 6. 输出最终文件信息与 SHA-256。
+
+构建中间产物（PyInstaller 工作目录与 Python 字节码缓存）写入系统临时目录，并在构建结束后自动清理，不会在项目目录内留下 `build/`、`dist/`、`__pycache__/` 或 `*.pyc`。
 
 默认输出目录：
 
@@ -222,7 +224,7 @@ py -m venv .venv
 当前构建文件名：
 
 ```text
-CodexQuotaMonitor_v1.4.exe
+CodexQuotaMonitor_v1.4.1.exe
 ```
 
 也可以显式指定 Release 目录：
@@ -284,7 +286,13 @@ auth.json
 <details>
 <summary><strong>为什么额度没有立即变化？</strong></summary>
 <br>
-程序会周期性检查本地日志变化，并进行低频强制复核；Codex 只有在产生新的本地 session 记录后，日志中的额度状态才会更新。
+
+通常情况下，程序读取 Codex 新写入的本地 session 记录（JSONL）来更新额度，并会周期性检查本地日志变化、进行低频强制复核。
+
+如果已有记录中的 `resets_at` 已经过期，程序会按当前时间把该额度窗口视为进入新的周期。因此，即使 Codex 没有新增 JSONL 记录，过期窗口的剩余额度也可能自动从旧的剩余值变为 100%。
+
+如果窗口尚未过期、本地日志也没有变化，点击“刷新”后数字保持不变属于正常行为：此时没有新的额度信息可读。
+
 </details>
 
 <details>

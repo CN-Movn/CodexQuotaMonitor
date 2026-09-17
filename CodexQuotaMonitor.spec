@@ -18,7 +18,22 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # 这些模块经依赖图与运行期导入追踪确认不在任何被执行的导入路径上
+    # （ssl/hashlib 由 http/ftplib/urllib 以 try/except 保护；unicodedata 仅在
+    #  re 的 \N{...} 分支内惰性导入；decimal 一族仅被 statistics/fractions 使用）。
+    excludes=[
+        "ssl",
+        "_ssl",
+        "hashlib",
+        "_hashlib",
+        "unicodedata",
+        "decimal",
+        "_decimal",
+        "_pydecimal",
+        "statistics",
+        "fractions",
+        "numbers",
+    ],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -29,7 +44,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="CodexQuotaMonitor_v1.4",
+    name="CodexQuotaMonitor_v1.4.1",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -721,6 +721,8 @@ class WindowsTrayApp:
         self._registered_classes: list[str] = []
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
+        self._refresh_lock = threading.Lock()
+        self._refresh_requested = False
         self._pending_lock = threading.Lock()
         self._pending_snapshot: QuotaSnapshot | None = None
         self._pending_error: str | None = None
@@ -877,6 +879,11 @@ class WindowsTrayApp:
         force_refresh_cycles = max(1, round(30.0 / self.refresh_interval))
         previous: QuotaSnapshot | None = None
         while not self._stop_event.is_set():
+            with self._refresh_lock:
+                if self._refresh_requested:
+                    force_scan = True
+                    self._refresh_requested = False
+
             try:
                 snapshot = self.scanner.scan(force=force_scan)
                 error = None
@@ -899,11 +906,11 @@ class WindowsTrayApp:
 
             refresh_cycles = 0 if force_scan else refresh_cycles + 1
             force_scan = False
-            was_woken = self._wake_event.wait(self.refresh_interval)
+            self._wake_event.wait(self.refresh_interval)
             self._wake_event.clear()
             if self._stop_event.is_set():
                 break
-            force_scan = was_woken or refresh_cycles >= force_refresh_cycles
+            force_scan = refresh_cycles >= force_refresh_cycles
 
     def _apply_pending(self) -> None:
         with self._pending_lock:
@@ -1184,6 +1191,8 @@ class WindowsTrayApp:
 
     def _handle_menu_command(self, command: int) -> None:
         if command == MENU_REFRESH:
+            with self._refresh_lock:
+                self._refresh_requested = True
             self._wake_event.set()
         elif command == MENU_TOGGLE_STARTUP:
             try:
@@ -1192,7 +1201,7 @@ class WindowsTrayApp:
                     startup_file.unlink()
                 else:
                     startup_file.parent.mkdir(parents=True, exist_ok=True)
-                    startup_file.write_text(_startup_script_text(), encoding="utf-8")
+                    startup_file.write_text(_startup_script_text(), encoding="utf-16")
                 self._scan_error = None
             except OSError as exc:
                 self._scan_error = f"startup: {exc}"

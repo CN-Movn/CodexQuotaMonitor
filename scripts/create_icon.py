@@ -71,8 +71,9 @@ def _png(size: int) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", header) + _chunk(b"IDAT", zlib.compress(raw, 9)) + _chunk(b"IEND", b"")
 
 
-def main() -> int:
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+def build_icon_bytes() -> bytes:
+    """Return the ICO payload for the current geometry without touching the filesystem."""
+
     images = [(size, _png(size)) for size in (16, 32, 48, 256)]
     directory = struct.pack("<HHH", 0, 1, len(images))
     entries = bytearray()
@@ -83,8 +84,29 @@ def main() -> int:
         entries.extend(struct.pack("<BBBBHHII", dimension, dimension, 0, 0, 1, 32, len(image), offset))
         payload.extend(image)
         offset += len(image)
-    OUTPUT.write_bytes(directory + entries + payload)
-    print(f"Generated {OUTPUT}")
+    return bytes(directory + entries + payload)
+
+
+def write_if_changed(data: bytes) -> bool:
+    """Write the ICO only when its content differs; return True when a write happened."""
+
+    if OUTPUT.is_file():
+        try:
+            if OUTPUT.read_bytes() == data:
+                return False
+        except OSError:
+            pass
+    OUTPUT.write_bytes(data)
+    return True
+
+
+def main() -> int:
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    data = build_icon_bytes()
+    if write_if_changed(data):
+        print(f"Generated {OUTPUT}")
+    else:
+        print(f"Unchanged {OUTPUT}")
     return 0
 
 
